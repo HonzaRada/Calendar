@@ -1,6 +1,12 @@
 package cz.honza.mycalendar.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -37,6 +43,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +63,7 @@ import cz.honza.mycalendar.data.CalendarData
 import cz.honza.mycalendar.data.CalendarEvent
 import cz.honza.mycalendar.data.CalendarRepository
 import cz.honza.mycalendar.data.weekStart
+import cz.honza.mycalendar.reminders.EventReminders
 import cz.honza.mycalendar.widget.CalendarWidget
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -64,7 +72,9 @@ import java.time.format.TextStyle
 import java.util.UUID
 
 @Composable
-internal fun CalendarScreen(data: CalendarData, repository: CalendarRepository, widgetRequest: Int) {
+internal fun CalendarScreen(
+    data: CalendarData, repository: CalendarRepository, openDay: LocalDate?, onDayOpened: () -> Unit
+) {
     var selectedDay by rememberSaveable { mutableLongStateOf(LocalDate.now().toEpochDay()) }
     var weekly by rememberSaveable { mutableStateOf(false) }
     var editingEventId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -74,6 +84,10 @@ internal fun CalendarScreen(data: CalendarData, repository: CalendarRepository, 
     val date = LocalDate.ofEpochDay(selectedDay)
     val focus = LocalFocusManager.current
     val context = LocalContext.current
+    val screenState = rememberSaveableStateHolder()
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        EventReminders.refresh(context)
+    }
 
     fun selectDate(day: LocalDate) {
         focus.clearFocus()
@@ -86,75 +100,108 @@ internal fun CalendarScreen(data: CalendarData, repository: CalendarRepository, 
         editingEventId = UUID.randomUUID().toString()
     }
 
-    LaunchedEffect(widgetRequest) {
-        if (widgetRequest > 0) {
+    LaunchedEffect(openDay) {
+        if (openDay != null) {
             weekly = false
             editingEventId = null
             settingsPage = ""
-            selectDate(LocalDate.now())
+            selectDate(openDay)
+            onDayOpened()
         }
     }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.surface) { insets ->
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding(),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            val wide = maxWidth >= 680.dp
-            val short = maxHeight < 400.dp
-            val pageScroll = rememberScrollState()
-            val timelineScroll = rememberScrollState()
-            val noteScroll = rememberScrollState()
-            val pageModifier = if (short) Modifier.verticalScroll(pageScroll) else Modifier
-            val timelineModifier = if (short) Modifier else Modifier.verticalScroll(timelineScroll)
-            val horizontalPadding = if (wide) 24.dp else 12.dp
-
-            Column(
-                modifier = Modifier.widthIn(max = 1360.dp).fillMaxWidth().then(pageModifier)
-                    .padding(horizontal = horizontalPadding).padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                CalendarControls(
-                    weekly,
-                    onModeChange = { focus.clearFocus(); weekly = it },
-                    onAdd = { addEvent(date, 9 * 60) },
-                    onSettings = { settingsPage = "settings" }
-                )
-                CalendarHeader(date, weekly, wide, ::selectDate)
-
-                val body = if (short) Modifier else Modifier.weight(1f)
-                val dates = if (weekly) List(7) { date.weekStart().plusDays(it.toLong()) } else listOf(date)
-                val showDay: (LocalDate) -> Unit = { day ->
-                    selectDate(day)
-                    weekly = false
-                }
-                val editEvent: (CalendarEvent) -> Unit = { event ->
-                    newEventDate = event.date.toEpochDay()
-                    newEventStart = event.start
-                    editingEventId = event.id
-                }
-                val saveNote: (String) -> Unit = { repository.saveNote(date, it) }
-
-                if (weekly) {
-                    HourlySchedule(dates, date, data, ::addEvent, showDay, editEvent,
-                        modifier = body.padding(bottom = 16.dp), scrollWithin = !short)
-                } else if (wide) {
-                    Row(body.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        HourlySchedule(
-                            dates, date, data, ::addEvent, showDay, editEvent,
-                            Modifier.weight(1.65f).then(timelineModifier).padding(bottom = 16.dp)
-                        )
-                        val scroll = if (short) Modifier else Modifier.verticalScroll(noteScroll)
-                        DayNote(date, data.notes[date].orEmpty(), saveNote, 5,
-                            Modifier.weight(1f).then(scroll).padding(bottom = 16.dp))
+    if (settingsPage.isNotEmpty()) {
+        val back: () -> Unit = { settingsPage = if (settingsPage == "settings") "" else "settings" }
+        BackHandler(onBack = back)
+        when (settingsPage) {
+            "settings" -> CalendarSettings(
+                repository, data.groups,
+                onDismiss = back,
+                onEditGroup = { settingsPage = "group/${it.orEmpty()}" },
+                onSync = { settingsPage = "sync" },
+                onWidget = {
+                    if (!CalendarWidget.requestPin(context)) {
+                        Toast.makeText(context, R.string.widget_launcher_hint, Toast.LENGTH_LONG).show()
                     }
-                } else {
-                    Column(
-                        modifier = body.fillMaxWidth().then(timelineModifier).padding(bottom = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        DayNote(date, data.notes[date].orEmpty(), saveNote, 2)
-                        HourlySchedule(dates, date, data, ::addEvent, showDay, editEvent)
+                }
+            )
+            "sync" -> SyncSettings(repository, back)
+            else -> {
+                val groupId = settingsPage.substringAfter('/').ifEmpty { null }
+                val group = data.groups.firstOrNull { it.id == groupId }
+                GroupEditor(
+                    group,
+                    onDismiss = back,
+                    onSave = { repository.saveGroup(it); back() },
+                    onDelete = { repository.deleteGroup(it); back() }
+                )
+            }
+        }
+        return
+    }
+
+    screenState.SaveableStateProvider("calendar") {
+        Scaffold(containerColor = MaterialTheme.colorScheme.surface) { insets ->
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding(),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                val wide = maxWidth >= 680.dp
+                val short = maxHeight < 400.dp
+                val pageScroll = rememberScrollState()
+                val timelineScroll = rememberScrollState()
+                val noteScroll = rememberScrollState()
+                val pageModifier = if (short) Modifier.verticalScroll(pageScroll) else Modifier
+                val timelineModifier = if (short) Modifier else Modifier.verticalScroll(timelineScroll)
+                val horizontalPadding = if (wide) 24.dp else 12.dp
+
+                Column(
+                    modifier = Modifier.widthIn(max = 1360.dp).fillMaxWidth().then(pageModifier)
+                        .padding(horizontal = horizontalPadding).padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CalendarControls(
+                        weekly,
+                        onModeChange = { focus.clearFocus(); weekly = it },
+                        onAdd = { addEvent(date, 9 * 60) },
+                        onSettings = { settingsPage = "settings" }
+                    )
+                    CalendarHeader(date, weekly, wide, ::selectDate)
+
+                    val body = if (short) Modifier else Modifier.weight(1f)
+                    val dates = if (weekly) List(7) { date.weekStart().plusDays(it.toLong()) } else listOf(date)
+                    val showDay: (LocalDate) -> Unit = { day ->
+                        selectDate(day)
+                        weekly = false
+                    }
+                    val editEvent: (CalendarEvent) -> Unit = { event ->
+                        newEventDate = event.date.toEpochDay()
+                        newEventStart = event.start
+                        editingEventId = event.id
+                    }
+                    val saveNote: (String) -> Unit = { repository.saveNote(date, it) }
+
+                    if (weekly) {
+                        HourlySchedule(dates, date, data, ::addEvent, showDay, editEvent,
+                            modifier = body.padding(bottom = 16.dp), scrollWithin = !short)
+                    } else if (wide) {
+                        Row(body.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            HourlySchedule(
+                                dates, date, data, ::addEvent, showDay, editEvent,
+                                Modifier.weight(1.65f).then(timelineModifier).padding(bottom = 16.dp)
+                            )
+                            val scroll = if (short) Modifier else Modifier.verticalScroll(noteScroll)
+                            DayNote(date, data.notes[date].orEmpty(), saveNote, 5,
+                                Modifier.weight(1f).then(scroll).padding(bottom = 16.dp))
+                        }
+                    } else {
+                        Column(
+                            modifier = body.fillMaxWidth().then(timelineModifier).padding(bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            DayNote(date, data.notes[date].orEmpty(), saveNote, 2)
+                            HourlySchedule(dates, date, data, ::addEvent, showDay, editEvent)
+                        }
                     }
                 }
             }
@@ -167,37 +214,19 @@ internal fun CalendarScreen(data: CalendarData, repository: CalendarRepository, 
                 id, data.events.firstOrNull { it.id == id },
                 LocalDate.ofEpochDay(newEventDate), newEventStart, data.groups,
                 onDismiss = { editingEventId = null },
-                onSave = { repository.saveEvent(it); editingEventId = null },
+                onSave = { event ->
+                    repository.saveEvent(event)
+                    editingEventId = null
+                    if (event.reminders.isNotEmpty() && Build.VERSION.SDK_INT >= 33 &&
+                        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                },
                 onDelete = { repository.deleteEvent(id); editingEventId = null }
             )
         }
     }
 
-    when (settingsPage) {
-        "" -> Unit
-        "settings" -> CalendarSettings(
-            data.groups,
-            onDismiss = { settingsPage = "" },
-            onEditGroup = { settingsPage = "group/${it.orEmpty()}" },
-            onSync = { settingsPage = "sync" },
-            onWidget = {
-                if (!CalendarWidget.requestPin(context)) {
-                    Toast.makeText(context, R.string.widget_launcher_hint, Toast.LENGTH_LONG).show()
-                }
-            }
-        )
-        "sync" -> SyncSettings(repository) { settingsPage = "settings" }
-        else -> {
-            val groupId = settingsPage.substringAfter('/').ifEmpty { null }
-            val group = data.groups.firstOrNull { it.id == groupId }
-            GroupEditor(
-                group,
-                onDismiss = { settingsPage = "settings" },
-                onSave = { repository.saveGroup(it); settingsPage = "settings" },
-                onDelete = { repository.deleteGroup(it); settingsPage = "settings" }
-            )
-        }
-    }
 }
 
 @Composable

@@ -16,6 +16,8 @@ TOKEN = re.compile(r"[A-Za-z0-9_-]{32,128}")
 RECORD_ID = re.compile(r"(note|event|calendar)/[A-Za-z0-9_-]{1,50}")
 MUTATION = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 COLORS = {"PRIMARY", "SECONDARY", "TERTIARY", "ERROR"}
+REPEAT_RULES = {"NONE", "DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
+REMINDER_OFFSETS = {0, 5, 10, 15, 30, 60, 1440}
 MAX_BODY = 8 * 1024 * 1024
 PAGE = 128
 
@@ -49,14 +51,24 @@ def valid_record(record_id, value):
         if kind == "note":
             return isinstance(value["text"], str)
         if kind == "calendar":
-            return (value["name"] is None or isinstance(value["name"], str)) and value["color"] in COLORS
+            custom = value.get("customColor")
+            return (
+                (value["name"] is None or isinstance(value["name"], str)) and value["color"] in COLORS
+                and (custom is None or type(custom) is int and 0 <= custom <= 0xFFFFFF)
+            )
         date.fromisoformat(value["date"])
+        reminders = value.get("reminders", [])
+        zone = value.get("zone")
         return (
             type(value["start"]) is int and type(value["end"]) is int
             and 0 <= value["start"] < value["end"] <= 1440
             and isinstance(value["title"], str)
             and isinstance(value["group"], str)
             and isinstance(value.get("sticker", ""), str)
+            and value.get("repeat", "NONE") in REPEAT_RULES
+            and isinstance(reminders, list) and len(reminders) <= len(REMINDER_OFFSETS)
+            and all(type(lead) is int and lead in REMINDER_OFFSETS for lead in reminders)
+            and (zone is None or isinstance(zone, str) and len(zone) <= 128)
         )
     except (KeyError, TypeError, ValueError):
         return False

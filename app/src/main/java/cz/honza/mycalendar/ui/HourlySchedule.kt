@@ -58,7 +58,7 @@ internal fun HourlySchedule(
     scrollWithin: Boolean = false
 ) {
     val week = dates.size > 1
-    val byDate = remember(data.events) { data.events.groupBy { it.date } }
+    val byDate = remember(data.events, dates) { dates.associateWith(data::eventsOn) }
     val density = LocalDensity.current
     val fontScale = density.fontScale.coerceIn(1f, 2f)
     val hourHeight = with(density) { (56.dp * fontScale).roundToPx().toDp() }
@@ -181,7 +181,7 @@ private fun ScheduleDay(
         for (item in placed) {
             val event = item.event
             val group = data.group(event.groupId)
-            val palette = colors.forCalendar(group.color)
+            val palette = colors.forCalendar(group)
             val laneWidth = width / item.lanes
             val height = hourHeight * ((item.visibleEnd - item.visibleStart) / 60f)
             val timing = stringResource(R.string.date_range, clockText(event.start), clockText(event.end))

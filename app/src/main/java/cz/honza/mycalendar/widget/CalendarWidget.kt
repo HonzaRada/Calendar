@@ -44,7 +44,7 @@ internal class CalendarWidget : AppWidgetProvider() {
             val date = LocalDate.now()
             val locale = context.resources.configuration.locales[0]
             val dateText = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale).format(date)
-            val events = data.events.filter { it.date == date }
+            val events = data.eventsOn(date)
             val agenda = if (events.isEmpty()) context.getString(R.string.widget_no_events) else {
                 events.take(3).joinToString("\n") { "${clockText(it.start)}  ${it.displayTitle}" }
             }

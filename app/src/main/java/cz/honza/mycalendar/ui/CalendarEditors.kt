@@ -1,6 +1,7 @@
 package cz.honza.mycalendar.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -40,11 +42,14 @@ import cz.honza.mycalendar.R
 import cz.honza.mycalendar.data.CalendarColor
 import cz.honza.mycalendar.data.CalendarEvent
 import cz.honza.mycalendar.data.CalendarGroup
+import cz.honza.mycalendar.data.RepeatRule
 import cz.honza.mycalendar.data.clockText
 import cz.honza.mycalendar.data.eventStickers
 import cz.honza.mycalendar.data.parseClock
+import cz.honza.mycalendar.data.reminderOffsets
 import cz.honza.mycalendar.ui.theme.forCalendar
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.UUID
@@ -67,6 +72,8 @@ internal fun EventEditor(
     var end by rememberSaveable { mutableStateOf(clockText(event?.end ?: (defaultStart + 60).coerceAtMost(1440))) }
     var groupId by rememberSaveable { mutableStateOf(event?.groupId ?: "other") }
     var sticker by rememberSaveable { mutableStateOf(event?.sticker.orEmpty()) }
+    var repeat by rememberSaveable { mutableStateOf(event?.repeat ?: RepeatRule.NONE) }
+    var reminders by rememberSaveable { mutableStateOf(event?.reminders.orEmpty().toIntArray()) }
     var submitted by rememberSaveable { mutableStateOf(false) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var showDelete by rememberSaveable { mutableStateOf(false) }
@@ -96,7 +103,9 @@ internal fun EventEditor(
     }
 
     if (showDelete) {
-        ConfirmDelete(R.string.delete_event, R.string.delete_event_message, { showDelete = false }, onDelete)
+        val message = if (event?.repeat == null || event.repeat == RepeatRule.NONE) R.string.delete_event_message
+            else R.string.delete_series_message
+        ConfirmDelete(R.string.delete_event, message, { showDelete = false }, onDelete)
         return
     }
 
@@ -121,6 +130,25 @@ internal fun EventEditor(
                     Text(stringResource(R.string.invalid_times), color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                 }
+                Text(stringResource(R.string.repeat_title), style = MaterialTheme.typography.labelLarge)
+                RepeatSelector(repeat) { repeat = it }
+                if (event != null && event.repeat != RepeatRule.NONE) {
+                    Text(stringResource(R.string.edit_series_hint), style = MaterialTheme.typography.bodySmall)
+                }
+                Text(stringResource(R.string.event_reminders), style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (lead in reminderOffsets) {
+                        val label = when (lead) {
+                            0 -> stringResource(R.string.reminder_at_start)
+                            1440 -> stringResource(R.string.reminder_day_before)
+                            else -> stringResource(R.string.reminder_minutes_before, lead)
+                        }
+                        FilterChip(selected = lead in reminders, onClick = {
+                            reminders = if (lead in reminders) reminders.filter { it != lead }.toIntArray()
+                                else reminders + lead
+                        }, label = { Text(label) })
+                    }
+                }
                 Text(stringResource(R.string.event_calendar), style = MaterialTheme.typography.labelLarge)
                 GroupSelector(groups, group) { groupId = it.id }
 
@@ -144,7 +172,8 @@ internal fun EventEditor(
             TextButton(onClick = {
                 submitted = true
                 if (title.isNotBlank() && startMinute != null && endMinute != null && validTimes) {
-                    onSave(CalendarEvent(id, date, startMinute, endMinute, title.trim(), group.id, sticker))
+                    onSave(CalendarEvent(id, date, startMinute, endMinute, title.trim(), group.id, sticker,
+                        repeat, reminders.sorted(), event?.zone ?: ZoneId.systemDefault().id))
                 }
             }) { Text(stringResource(R.string.save)) }
         },
@@ -157,6 +186,22 @@ internal fun EventEditor(
             }
         }
     )
+}
+
+@Composable
+private fun RepeatSelector(repeat: RepeatRule, onChange: (RepeatRule) -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text(stringResource(repeat.label)) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for (rule in RepeatRule.entries) {
+                DropdownMenuItem(text = { Text(stringResource(rule.label)) }, onClick = {
+                    onChange(rule)
+                    expanded = false
+                })
+            }
+        }
+    }
 }
 
 @Composable
@@ -195,45 +240,33 @@ internal fun GroupEditor(
 ) {
     val originalName = group?.let { groupName(it) }.orEmpty()
     var name by rememberSaveable { mutableStateOf(originalName) }
-    var color by rememberSaveable { mutableStateOf(group?.color ?: CalendarColor.PRIMARY) }
+    var customColor by rememberSaveable { mutableStateOf(group?.customColor) }
+    var validColor by rememberSaveable { mutableStateOf(true) }
     var delete by rememberSaveable { mutableStateOf(false) }
+    val draft = group ?: CalendarGroup("", null, CalendarColor.PRIMARY)
+    val defaultColor = MaterialTheme.colorScheme.forCalendar(draft.copy(customColor = null)).accent.toArgb() and 0xFFFFFF
 
+    SettingsPage(
+        stringResource(if (group == null) R.string.new_calendar else R.string.edit_calendar),
+        onDismiss,
+        actions = {
+            TextButton(enabled = name.isNotBlank() && validColor, onClick = {
+                val savedName = if (group?.name == null && group?.defaultName != null && name.trim() == originalName) null else name.trim()
+                onSave(draft.copy(id = group?.id ?: UUID.randomUUID().toString(), name = savedName, customColor = customColor))
+            }) { Text(stringResource(R.string.save)) }
+        }
+    ) {
+        OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.calendar_name)) }, singleLine = true)
+        Text(stringResource(R.string.calendar_color), style = MaterialTheme.typography.labelLarge)
+        CalendarColorWheel(customColor, defaultColor, { validColor = it }) { customColor = it }
+        if (group != null && group.defaultName == null) {
+            TextButton(onClick = { delete = true }) { Text(stringResource(R.string.delete_calendar)) }
+        }
+    }
     if (delete && group != null) {
         ConfirmDelete(R.string.delete_calendar, R.string.delete_calendar_message, { delete = false }) { onDelete(group.id) }
-        return
     }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(if (group == null) R.string.new_calendar else R.string.edit_calendar)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.calendar_name)) }, singleLine = true)
-                Text(stringResource(R.string.calendar_color), style = MaterialTheme.typography.labelLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (tone in CalendarColor.entries) {
-                        FilterChip(selected = color == tone, onClick = { color = tone },
-                            label = { Text(stringResource(tone.label)) }, leadingIcon = { ColorSwatch(tone) })
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = {
-                val savedName = if (group?.name == null && group?.defaultName != null && name.trim() == originalName) null else name.trim()
-                onSave(CalendarGroup(group?.id ?: UUID.randomUUID().toString(), savedName, color, group?.defaultName))
-            }) { Text(stringResource(R.string.save)) }
-        },
-        dismissButton = {
-            Row {
-                if (group != null && group.defaultName == null) {
-                    TextButton(onClick = { delete = true }) { Text(stringResource(R.string.delete)) }
-                }
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-            }
-        }
-    )
 }
 
 @Composable
@@ -254,12 +287,9 @@ internal fun groupName(group: CalendarGroup): String =
 @Composable
 internal fun GroupLabel(group: CalendarGroup) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        ColorSwatch(group.color)
+        val colors = MaterialTheme.colorScheme
+        val shape = MaterialTheme.shapes.small
+        Box(Modifier.size(14.dp).background(colors.forCalendar(group).accent, shape).border(1.dp, colors.outline, shape))
         Text(groupName(group))
     }
-}
-
-@Composable
-private fun ColorSwatch(color: CalendarColor) {
-    Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.forCalendar(color).accent, MaterialTheme.shapes.small))
 }

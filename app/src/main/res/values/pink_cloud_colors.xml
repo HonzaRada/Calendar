@@ -1,0 +1,20 @@
+<resources>
+    <color name="pink_cloud_berry">#9D2D60</color>
+    <color name="pink_cloud_rose">#FFC4DF</color>
+    <color name="pink_cloud_raspberry">#86516F</color>
+    <color name="pink_cloud_blush">#FFD8E9</color>
+    <color name="pink_cloud_lavender">#705294</color>
+    <color name="pink_cloud_lilac">#ECDDFF</color>
+    <color name="pink_cloud_deep_plum">#2E174C</color>
+    <color name="pink_cloud_deep_berry">#45112D</color>
+    <color name="pink_cloud_ink">#382330</color>
+    <color name="pink_cloud_muted_ink">#684B5B</color>
+    <color name="pink_cloud_white">#FFFFFF</color>
+    <color name="pink_cloud_surface">#FFF6FA</color>
+    <color name="pink_cloud_low">#FFF0F7</color>
+    <color name="pink_cloud_tint">#FDE7F2</color>
+    <color name="pink_cloud_high">#F9DEEB</color>
+    <color name="pink_cloud_dim">#F3D4E2</color>
+    <color name="pink_cloud_outline">#91697D</color>
+    <color name="pink_cloud_divider">#E5BCCD</color>
+</resources>

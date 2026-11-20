@@ -25,5 +25,6 @@ Pokud je server pouze v místní síti, na Androidu 17 při nedostupném spojen�
 ## Jak se změny projeví
 
 - Aplikace synchronizuje při otevření, pravidelně během používání a na pozadí podle možností Androidu. Ruční tlačítko **Synchronizovat nyní** je v nastavení.
+- Každé zařízení po synchronizaci naplánuje vlastní upozornění podle časového pásma události. Na každém zařízení povolte oznámení pro aplikaci. Pro co nejpřesnější čas lze v nastavení aplikace povolit také přesná upozornění. Android může zpozdit synchronizaci na pozadí.
 - První připojení sloučí místní záznamy se záznamy na serveru. Pokud dvě zařízení změní stejnou poznámku, událost nebo kalendář, platí poslední změna přijatá serverem. Změny různých záznamů se zachovají.
 - Každý, kdo zná klíč, může tuto sadu číst i upravovat. Server ukládá data do SQLite. Zálohujte databázi pomocí zálohovacího rozhraní SQLite a uchovávejte ji na soukromém úložišti.

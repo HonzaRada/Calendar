@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.core.content.edit
 import cz.honza.mycalendar.CalendarApplication
+import cz.honza.mycalendar.reminders.EventReminders
 import cz.honza.mycalendar.widget.CalendarWidget
 import java.time.LocalDate
 import java.util.UUID
@@ -27,6 +28,7 @@ internal class CalendarRepository(private val context: Application) {
 
     private val preferences = context.getSharedPreferences("calendar_records", Context.MODE_PRIVATE)
     private val settings = context.getSharedPreferences("sync_credentials", Context.MODE_PRIVATE)
+    private val appearance = context.getSharedPreferences("calendar_appearance", Context.MODE_PRIVATE)
     private val syncLock = Mutex()
     private val records = preferences.all.mapNotNull { (id, raw) ->
         if (!id.contains('/') || raw !is String) return@mapNotNull null
@@ -42,6 +44,9 @@ internal class CalendarRepository(private val context: Application) {
         }
     )
     private val _status = MutableStateFlow(SyncStatus.IDLE)
+    private val _themeMode = MutableStateFlow(
+        AppThemeMode.entries.firstOrNull { it.name == appearance.getString("theme", null) } ?: AppThemeMode.SYSTEM
+    )
 
     init {
         if (!preferences.getBoolean("imported_day_notes", false)) {
@@ -66,6 +71,12 @@ internal class CalendarRepository(private val context: Application) {
     val data = _data.asStateFlow()
     val connection = _connection.asStateFlow()
     val status = _status.asStateFlow()
+    val themeMode = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: AppThemeMode) {
+        appearance.edit { putString("theme", mode.name) }
+        _themeMode.value = mode
+    }
 
     fun saveNote(date: LocalDate, text: String) {
         save("note/$date", text.takeIf { it.isNotEmpty() }?.let { JSONObject().put("text", it) })
@@ -75,7 +86,8 @@ internal class CalendarRepository(private val context: Application) {
     fun deleteEvent(id: String) = save("event/$id", null)
 
     fun saveGroup(group: CalendarGroup) {
-        save("calendar/${group.id}", JSONObject().put("name", group.name ?: JSONObject.NULL).put("color", group.color.name))
+        save("calendar/${group.id}", JSONObject().put("name", group.name ?: JSONObject.NULL)
+            .put("color", group.color.name).put("customColor", group.customColor ?: JSONObject.NULL))
     }
 
     fun deleteGroup(id: String) {
@@ -198,6 +210,7 @@ internal class CalendarRepository(private val context: Application) {
         if (previous.notes[today] != updated.notes[today] || previous.events != updated.events) {
             CalendarWidget.refresh(context, updated)
         }
+        if (previous.events != updated.events) EventReminders.refresh(context)
     }
 
     private fun readData(): CalendarData {
@@ -213,7 +226,8 @@ internal class CalendarRepository(private val context: Application) {
                     "calendar" -> {
                         val name = if (value.isNull("name")) null else value.getString("name")
                         val color = CalendarColor.valueOf(value.getString("color"))
-                        groups[id] = CalendarGroup(id, name, color, groups[id]?.defaultName)
+                        val custom = value.optInt("customColor", -1).takeIf { it in 0..0xFFFFFF }
+                        groups[id] = CalendarGroup(id, name, color, groups[id]?.defaultName, custom)
                     }
                     "event" -> events += eventFromJson(id, value)
                 }
