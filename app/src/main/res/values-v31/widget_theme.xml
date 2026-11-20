@@ -1,0 +1,4 @@
+<resources>
+    <style name="Theme.MyCalendar.Widget" parent="android:Theme.DeviceDefault.DayNight" />
+    <dimen name="calendar_widget_radius">@android:dimen/system_app_widget_background_radius</dimen>
+</resources>

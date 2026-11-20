@@ -2,4 +2,6 @@
 <resources>
 
     <style name="Theme.MyCalendar" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.MyCalendar.Widget" parent="android:Theme.DeviceDefault" />
+    <dimen name="calendar_widget_radius">16dp</dimen>
 </resources>
