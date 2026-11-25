@@ -1,0 +1,13 @@
+name = "mycalendar-sync"
+main = "worker.mjs"
+compatibility_date = "2026-11-25"
+workers_dev = true
+preview_urls = false
+
+[[durable_objects.bindings]]
+name = "CALENDAR"
+class_name = "CalendarStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CalendarStore"]

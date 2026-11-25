@@ -2,6 +2,8 @@
 
 Server uchovává jednu soukromou sadu kalendářů, událostí a poznámek. Aplikace funguje i bez připojení a změny odešle po jeho obnovení. Obě zařízení musí mít přístup ke stejné adrese serveru a používat stejný tajný klíč.
 
+Pro provoz na bezplatném tarifu Workers Free použijte [nasazení na Cloudflare](cloudflare/README.md). Následující postup je pro vlastní Python server.
+
 ## Spuštění
 
 Vyžaduje Python 3.10 nebo novější a trvalé úložiště pro databázi SQLite. Vygenerujte klíč a bezpečně jej uložte pro další spuštění serveru a nastavení obou zařízení.
